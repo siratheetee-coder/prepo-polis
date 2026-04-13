@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voting Phase - Prepo-Polis</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script tailwind-config>
+    module.exports = {
+      theme: {
+        extend: {
+          colors: {
+            eco: '#10b981',
+            structural: '#3b82f6',
+            aesthetic: '#ec4899',
+            innovation: '#f59e0b',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- ============================================================
+       FIREBASE MULTIPLAYER SETUP
+       ============================================================ -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getDatabase, ref, onValue, serverTimestamp, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey:            "AIzaSyCxoGKPajTmSFXzP26BddBxbj-g7_dCgDU",
+      authDomain:        "prepo-polis.firebaseapp.com",
+      databaseURL:       "https://prepo-polis-default-rtdb.firebaseio.com",
+      projectId:         "prepo-polis",
+      storageBucket:     "prepo-polis.firebasestorage.app",
+      messagingSenderId: "836362626520",
+      appId:             "1:836362626520:web:f2009f83ca58763ad37ead"
+    };
+
+    try {
+      const app = initializeApp(firebaseConfig);
+      const db  = getDatabase(app);
+      let pid   = null;
+      let allPlayers = [];
+
+      window.fbReady = true;
+
+      window.fbJoin = function(name, charId, charName) {
+        pid = "p_" + Date.now() + "_" + Math.random().toString(36).substr(2,4);
+        window._pid = pid;
+        set(ref(db,"players/"+pid), { name, charId:charId||"", charName:charName||"", score:0, level:1, ts: serverTimestamp() });
+      };
+
+      window.fbGetCurrentPlayerId = function() {
+        return pid;
+      };
+
+      window.fbListen = function(cb) {
+        onValue(ref(db,"players"), snap => {
+          const d = snap.val() || {};
+          allPlayers = Object.entries(d).map(([id,p]) => ({
+            id, name:p.name, charId:p.charId||"", charName:p.charName||"",
+            score:p.score||0, level:p.level||1, isMe: id===pid
+          })).sort((a,b) => b.score - a.score);
+          cb(allPlayers);
+        });
+      };
+
+      window.fbSaveVotes = function(votes) {
+        if (!pid) return;
+        set(ref(db,"votes/"+pid), { votes, ts: serverTimestamp() });
+      };
+
+      window.fbLeave = function() {
+        if (pid) set(ref(db,"players/"+pid), null);
+      };
+
+      window.addEventListener("beforeunload", () => window.fbLeave && window.fbLeave());
+      console.log("Firebase ready for voting phase!");
+    } catch(e) {
+      console.warn("Firebase not configured:", e.message);
+      window.fbReady = false;
+    }
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      font-family: "Fredoka", sans-serif;
+    }
+
+    .voting-container {
+      min-height: 100vh;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: #fff;
+      padding: 24px;
+      overflow: hidden;
+    }
+
+    .voting-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .voting-title {
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #4ecdc4, #26d0ce);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .voting-subtitle {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.6);
+      margin-top: 4px;
+    }
+
+    .close-btn {
+      background: rgba(255, 255, 255, 0.12);
+      border: none;
+      border-radius: 999px;
+      padding: 8px 20px;
+      color: #fff;
+      font-family: "Fredoka", sans-serif;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .close-btn:hover {
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    .voting-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 32px;
+      height: calc(100vh - 180px);
+      overflow: hidden;
+    }
+
+    @media (max-width: 1024px) {
+      .voting-grid {
+        grid-template-columns: 220px 1fr;
+        gap: 20px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .voting-grid {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+    }
+
+    /* Players Sidebar */
+    .players-sidebar {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 20px;
+      overflow-y: auto;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .sidebar-header {
+      font-size: 14px;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.6);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .player-item {
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 12px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .player-item:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateX(4px);
+    }
+
+    .player-item.me {
+      background: rgba(78, 205, 196, 0.15);
+      border-color: rgba(78, 205, 196, 0.3);
+    }
+
+    .player-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .player-score {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-top: 4px;
+    }
+
+    .me-badge {
+      display: inline-block;
+      background: rgba(78, 205, 196, 0.3);
+      color: #4ecdc4;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      margin-top: 4px;
+    }
+
+    /* Awards Section */
+    .awards-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      overflow-y: auto;
+      padding-right: 12px;
+    }
+
+    @media (max-width: 1200px) {
+      .awards-container {
+        gap: 20px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .awards-container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .award-card {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      padding: 24px;
+      color: #1a1a2e;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .award-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .award-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .award-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .award-eco .award-icon {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+    }
+
+    .award-structural .award-icon {
+      background: rgba(59, 130, 246, 0.15);
+      color: #3b82f6;
+    }
+
+    .award-aesthetic .award-icon {
+      background: rgba(236, 72, 153, 0.15);
+      color: #ec4899;
+    }
+
+    .award-innovation .award-icon {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+    }
+
+    .award-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a1a2e;
+    }
+
+    .award-subtitle {
+      font-size: 12px;
+      color: rgba(26, 26, 46, 0.6);
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+
+    .form-group {
+      margin-top: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #333;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin-bottom: 8px;
+    }
+
+    .award-dropdown {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid rgba(26, 26, 46, 0.15);
+      border-radius: 10px;
+      font-family: "Fredoka", sans-serif;
+      font-size: 13px;
+      color: #1a1a2e;
+      background: rgba(255, 255, 255, 0.8);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .award-dropdown:focus {
+      outline: none;
+      border-color: #4ecdc4;
+      background: #fff;
+    }
+
+    .award-textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid rgba(26, 26, 46, 0.15);
+      border-radius: 10px;
+      font-family: "Fredoka", sans-serif;
+      font-size: 13px;
+      color: #1a1a2e;
+      background: rgba(255, 255, 255, 0.8);
+      resize: vertical;
+      min-height: 80px;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .award-textarea:focus {
+      outline: none;
+      border-color: #4ecdc4;
+      background: #fff;
+    }
+
+    .award-textarea::placeholder {
+      color: rgba(26, 26, 46, 0.4);
+    }
+
+    /* Action Buttons */
+    .voting-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .submit-btn, .cancel-btn {
+      flex: 1;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 12px;
+      font-family: "Fredoka", sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .submit-btn {
+      background: linear-gradient(135deg, #4ecdc4, #26d0ce);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(78, 205, 196, 0.3);
+    }
+
+    .submit-btn:hover {
+      transform: scale(1.02);
+      box-shadow: 0 6px 16px rgba(78, 205, 196, 0.4);
+    }
+
+    .submit-btn:active {
+      transform: scale(0.98);
+    }
+
+    .cancel-btn {
+      background: rgba(26, 26, 46, 0.1);
+      color: #1a1a2e;
+      border: 1px solid rgba(26, 26, 46, 0.2);
+    }
+
+    .cancel-btn:hover {
+      background: rgba(26, 26, 46, 0.15);
+    }
+
+    /* Success Message */
+    .success-message {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(16, 185, 129, 0.95);
+      color: #fff;
+      padding: 16px 24px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+      z-index: 1000;
+      animation: slideIn 0.3s ease-out;
+      display: none;
+    }
+
+    .success-message.show {
+      display: block;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    /* Scrollbar Styling */
+    .players-sidebar::-webkit-scrollbar,
+    .awards-container::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .players-sidebar::-webkit-scrollbar-track,
+    .awards-container::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+    }
+
+    .players-sidebar::-webkit-scrollbar-thumb,
+    .awards-container::-webkit-scrollbar-thumb {
+      background: rgba(78, 205, 196, 0.3);
+      border-radius: 10px;
+    }
+
+    .players-sidebar::-webkit-scrollbar-thumb:hover,
+    .awards-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(78, 205, 196, 0.5);
+    }
+
+    /* Loading State */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 200px;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 16px;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(78, 205, 196, 0.2);
+      border-top-color: #4ecdc4;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="voting-container">
+    <div class="voting-header">
+      <div>
+        <div class="voting-title">Voting Phase 🏆</div>
+        <div class="voting-subtitle">Cast your votes for your fellow city builders</div>
+      </div>
+      <button class="close-btn" onclick="window.close()">Close</button>
+    </div>
+
+    <div class="voting-grid">
+      <!-- Left Sidebar: Players -->
+      <div class="players-sidebar">
+        <div class="sidebar-header">👥 City Builders</div>
+        <div id="players-list"></div>
+      </div>
+
+      <!-- Right Section: Award Cards -->
+      <div class="awards-container" id="awards-container">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="success-message" id="success-msg">✓ Votes submitted successfully!</div>
+
+  <script>
+    const awards = [
+      {
+        id: 'eco',
+        name: 'The Eco-Guardian',
+        icon: '🌱',
+        subtitle: 'Best environmental design',
+        color: '#10b981'
+      },
+      {
+        id: 'structural',
+        name: 'The Structural Genius',
+        icon: '🏗️',
+        subtitle: 'Best infrastructure planning',
+        color: '#3b82f6'
+      },
+      {
+        id: 'aesthetic',
+        name: 'The Aesthetic Artist',
+        icon: '🎨',
+        subtitle: 'Most visually appealing city',
+        color: '#ec4899'
+      },
+      {
+        id: 'innovation',
+        name: 'The Innovation Hub',
+        icon: '💡',
+        subtitle: 'Most creative solution',
+        color: '#f59e0b'
+      }
+    ];
+
+    let currentPlayerId = null;
+    let allPlayers = [];
+    let votes = {};
+
+    // Initialize
+    function init() {
+      currentPlayerId = window.fbGetCurrentPlayerId && window.fbGetCurrentPlayerId();
+      
+      if (window.fbListen && typeof window.fbListen === 'function') {
+        window.fbListen(updatePlayers);
+      }
+
+      renderAwards();
+    }
+
+    // Update players list
+    function updatePlayers(players) {
+      allPlayers = players;
+      renderPlayersList();
+    }
+
+    // Render players sidebar
+    function renderPlayersList() {
+      const playersList = document.getElementById('players-list');
+      
+      if (!allPlayers || allPlayers.length === 0) {
+        playersList.innerHTML = '<div style="font-size: 13px; color: rgba(255,255,255,0.5);">No players yet...</div>';
+        return;
+      }
+
+      playersList.innerHTML = allPlayers.map(player => `
+        <div class="player-item ${player.isMe ? 'me' : ''}">
+          <div class="player-name">${player.name}${player.charName ? ' - ' + player.charName : ''}</div>
+          <div class="player-score">Score: ${player.score}</div>
+          ${player.isMe ? '<div class="me-badge">You</div>' : ''}
+        </div>
+      `).join('');
+    }
+
+    // Render award cards
+    function renderAwards() {
+      const container = document.getElementById('awards-container');
+      
+      container.innerHTML = awards.map(award => `
+        <div class="award-card award-${award.id}">
+          <div class="award-header">
+            <div class="award-icon">${award.icon}</div>
+            <div>
+              <div class="award-title">${award.name}</div>
+              <div class="award-subtitle">${award.subtitle}</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Vote for a city:</label>
+            <select class="award-dropdown" id="select-${award.id}" onchange="handleVoteChange('${award.id}', this.value)">
+              <option value="">-- Select a city builder --</option>
+              ${getAllOtherPlayers().map(player => 
+                `<option value="${player.id}">${player.name}</option>`
+              ).join('')}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Your Rationale:</label>
+            <textarea 
+              class="award-textarea" 
+              id="rationale-${award.id}"
+              placeholder="Why did you choose this city builder for this award? (optional)"
+              maxlength="500"
+              onchange="handleVoteChange('${award.id}', null)"
+            ></textarea>
+          </div>
+
+          <div class="voting-actions">
+            <button class="submit-btn" onclick="submitVoteForAward('${award.id}')">Cast Vote</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Get all players except current user
+    function getAllOtherPlayers() {
+      return allPlayers.filter(p => !p.isMe);
+    }
+
+    // Handle vote change
+    function handleVoteChange(awardId, selectedValue) {
+      if (!votes[awardId]) {
+        votes[awardId] = {};
+      }
+      if (selectedValue !== null && selectedValue !== undefined) {
+        votes[awardId].playerId = selectedValue;
+      }
+      votes[awardId].rationale = document.getElementById(`rationale-${awardId}`).value;
+    }
+
+    // Submit vote for single award
+    function submitVoteForAward(awardId) {
+      const dropdown = document.getElementById(`select-${awardId}`);
+      const rationale = document.getElementById(`rationale-${awardId}`).value;
+
+      if (!dropdown.value) {
+        alert('Please select a city builder for this award.');
+        return;
+      }
+
+      // Save vote
+      votes[awardId] = {
+        playerId: dropdown.value,
+        rationale: rationale,
+        timestamp: new Date().getTime()
+      };
+
+      // Show success feedback
+      const btn = event.target;
+      const originalText = btn.textContent;
+      btn.textContent = '✓ Vote Cast!';
+      btn.style.opacity = '0.7';
+      btn.disabled = true;
+
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.opacity = '1';
+        btn.disabled = false;
+      }, 2000);
+    }
+
+    // Submit all votes
+    function submitAllVotes() {
+      if (Object.keys(votes).length < 4) {
+        alert('Please cast all votes before submitting.');
+        return;
+      }
+
+      if (window.fbSaveVotes && typeof window.fbSaveVotes === 'function') {
+        window.fbSaveVotes(votes);
+      }
+
+      // Show success message
+      const msg = document.getElementById('success-msg');
+      msg.classList.add('show');
+      
+      setTimeout(() => {
+        msg.classList.remove('show');
+      }, 3000);
+    }
+
+    // Initialize when ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  </script>
+</body>
+</html>
